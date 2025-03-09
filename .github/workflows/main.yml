@@ -51,7 +51,6 @@ jobs:
     #### Добавьте шаг с Flyway-миграциями
     - name: Run Flyway migrations
       run: |
-        # Запуск Flyway напрямую, без Docker
         wget -qO- https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.3/flyway-commandline-9.22.3-linux-x64.tar.gz | tar -xz
         sudo mv flyway-9.22.3 /opt/flyway
         sudo ln -s /opt/flyway/flyway /usr/local/bin/flyway
