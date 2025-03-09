@@ -10,7 +10,74 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
 
+    - name: Setup PostgreSQL 16
+      run: |
+        # Добавление репозитория PostgreSQL
+        sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+        wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+        sudo apt-get update
+        
+        # Установка PostgreSQL 16
+        sudo apt-get install -y postgresql-16
+        
+        # Настройка PostgreSQL для принятия TCP/IP соединений
+        sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/16/main/postgresql.conf
+        sudo sed -i "s/port = 5432/port = 5432/" /etc/postgresql/16/main/postgresql.conf
+        echo "host all all 0.0.0.0/0 md5" | sudo tee -a /etc/postgresql/16/main/pg_hba.conf
+        
+        # Перезапуск сервера PostgreSQL
+        sudo systemctl restart postgresql
+        
+        # Создание базы данных и пользователя
+        sudo -u postgres psql -c "CREATE DATABASE ${{ secrets.DB_NAME || 'store' }};"
+        sudo -u postgres psql -c "CREATE USER ${{ secrets.DB_USER || 'autotest' }} WITH PASSWORD '${{ secrets.DB_PASSWORD || 'autotest_password' }}';"
+        sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ${{ secrets.DB_NAME || 'store' }} TO ${{ secrets.DB_USER || 'autotest' }};"
+        sudo -u postgres psql -d ${{ secrets.DB_NAME || 'store' }} -c "GRANT ALL PRIVILEGES ON SCHEMA public TO ${{ secrets.DB_USER || 'autotest' }};"
+        sudo -u postgres psql -d ${{ secrets.DB_NAME || 'store' }} -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO ${{ secrets.DB_USER || 'autotest' }};"
+        sudo -u postgres psql -d ${{ secrets.DB_NAME || 'store' }} -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO ${{ secrets.DB_USER || 'autotest' }};"
+        
+        # Проверка статуса PostgreSQL
+        sudo systemctl status postgresql
+        
+        # Создание файла .pgpass для хранения пароля
+        echo "localhost:5432:${{ secrets.DB_NAME || 'store' }}:${{ secrets.DB_USER || 'autotest' }}:${{ secrets.DB_PASSWORD || 'autotest_password' }}" > ~/.pgpass
+        chmod 600 ~/.pgpass
+        
+        # Проверка доступности PostgreSQL
+        echo "Проверка подключения к PostgreSQL:"
+        PGPASSWORD="${{ secrets.DB_PASSWORD || 'autotest_password' }}" psql -h localhost -U ${{ secrets.DB_USER || 'autotest' }} -d ${{ secrets.DB_NAME || 'store' }} -c "SELECT 1;"
+
     #### Добавьте шаг с Flyway-миграциями
+    - name: Run Flyway migrations
+      run: |
+        wget -qO- https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.3/flyway-commandline-9.22.3-linux-x64.tar.gz | tar -xz
+        sudo mv flyway-9.22.3 /opt/flyway
+        sudo ln -s /opt/flyway/flyway /usr/local/bin/flyway
+        
+        # Запуск миграций
+        flyway -url=jdbc:postgresql://localhost:5432/${{ secrets.DB_NAME || 'store' }} -user=${{ secrets.DB_USER || 'autotest' }} -password=${{ secrets.DB_PASSWORD || 'autotest_password' }} -locations=filesystem:./migrations -connectRetries=10 migrate
+
+    - name: Run SQL Query
+      run: |
+        # Создание временного SQL-файла с запросом
+        cat > query.sql << 'EOF'
+        SELECT 
+            o.date_created,
+            SUM(op.quantity)
+        FROM 
+            orders AS o
+        JOIN 
+            order_product AS op ON o.id = op.order_id
+        WHERE 
+            o.status = 'shipped' AND o.date_created > NOW() - INTERVAL '7 DAY'
+        GROUP BY 
+            o.date_created
+        ORDER BY 
+            o.date_created;
+        EOF
+        
+        # Запуск запроса
+        PGPASSWORD="${{ secrets.DB_PASSWORD || 'autotest_password' }}" psql -h localhost -U ${{ secrets.DB_USER || 'autotest' }} -d ${{ secrets.DB_NAME || 'store' }} -f query.sql
 
     ### Этот шаг оставьте без изменений
     - name: Download and setup autotests binaries
