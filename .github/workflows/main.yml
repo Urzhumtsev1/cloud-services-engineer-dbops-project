@@ -58,6 +58,28 @@ jobs:
         # Запуск миграций
         flyway -url=jdbc:postgresql://localhost:5432/${{ secrets.DB_NAME || 'store' }} -user=${{ secrets.DB_USER || 'autotest' }} -password=${{ secrets.DB_PASSWORD || 'autotest_password' }} -locations=filesystem:./migrations -connectRetries=10 migrate
 
+    - name: Run SQL Query
+      run: |
+        # Создание временного SQL-файла с запросом
+        cat > query.sql << 'EOF'
+        SELECT 
+            o.date_created,
+            SUM(op.quantity)
+        FROM 
+            orders AS o
+        JOIN 
+            order_product AS op ON o.id = op.order_id
+        WHERE 
+            o.status = 'shipped' AND o.date_created > NOW() - INTERVAL '7 DAY'
+        GROUP BY 
+            o.date_created
+        ORDER BY 
+            o.date_created;
+        EOF
+        
+        # Запуск запроса
+        PGPASSWORD="${{ secrets.DB_PASSWORD || 'autotest_password' }}" psql -h localhost -U ${{ secrets.DB_USER || 'autotest' }} -d ${{ secrets.DB_NAME || 'store' }} -f query.sql
+
     ### Этот шаг оставьте без изменений
     - name: Download and setup autotests binaries
       run: |
