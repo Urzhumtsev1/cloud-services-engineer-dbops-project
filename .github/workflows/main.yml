@@ -40,9 +40,13 @@ jobs:
         # Проверка статуса PostgreSQL
         sudo systemctl status postgresql
         
+        # Создание файла .pgpass для хранения пароля
+        echo "localhost:5432:${{ secrets.DB_NAME || 'store' }}:${{ secrets.DB_USER || 'autotest' }}:${{ secrets.DB_PASSWORD || 'autotest_password' }}" > ~/.pgpass
+        chmod 600 ~/.pgpass
+        
         # Проверка доступности PostgreSQL
         echo "Проверка подключения к PostgreSQL:"
-        psql -h localhost -U ${{ secrets.DB_USER || 'autotest' }} -d ${{ secrets.DB_NAME || 'store' }} -c "SELECT 1;" -w
+        PGPASSWORD="${{ secrets.DB_PASSWORD || 'autotest_password' }}" psql -h localhost -U ${{ secrets.DB_USER || 'autotest' }} -d ${{ secrets.DB_NAME || 'store' }} -c "SELECT 1;"
 
     #### Добавьте шаг с Flyway-миграциями
     - name: Run Flyway migrations
