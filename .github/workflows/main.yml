@@ -21,8 +21,13 @@ jobs:
         # Установка PostgreSQL 16
         sudo apt-get install -y postgresql-16
         
-        # Запуск сервера PostgreSQL
-        sudo systemctl start postgresql
+        # Настройка PostgreSQL для принятия TCP/IP соединений
+        sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/16/main/postgresql.conf
+        sudo sed -i "s/port = 5432/port = 5432/" /etc/postgresql/16/main/postgresql.conf
+        echo "host all all 0.0.0.0/0 md5" | sudo tee -a /etc/postgresql/16/main/pg_hba.conf
+        
+        # Перезапуск сервера PostgreSQL
+        sudo systemctl restart postgresql
         
         # Создание базы данных и пользователя
         sudo -u postgres psql -c "CREATE DATABASE ${{ secrets.DB_NAME || 'store' }};"
@@ -31,15 +36,24 @@ jobs:
         sudo -u postgres psql -d ${{ secrets.DB_NAME || 'store' }} -c "GRANT ALL PRIVILEGES ON SCHEMA public TO ${{ secrets.DB_USER || 'autotest' }};"
         sudo -u postgres psql -d ${{ secrets.DB_NAME || 'store' }} -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO ${{ secrets.DB_USER || 'autotest' }};"
         sudo -u postgres psql -d ${{ secrets.DB_NAME || 'store' }} -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO ${{ secrets.DB_USER || 'autotest' }};"
+        
+        # Проверка статуса PostgreSQL
+        sudo systemctl status postgresql
+        
+        # Проверка доступности PostgreSQL
+        echo "Проверка подключения к PostgreSQL:"
+        psql -h localhost -U ${{ secrets.DB_USER || 'autotest' }} -d ${{ secrets.DB_NAME || 'store' }} -c "SELECT 1;" -w
 
     #### Добавьте шаг с Flyway-миграциями
     - name: Run Flyway migrations
-      uses: docker://flyway/flyway:9.22
-      with:
-        args: -url=jdbc:postgresql://${{ secrets.DB_HOST || 'localhost' }}:${{ secrets.DB_PORT || '5432' }}/${{ secrets.DB_NAME || 'store' }} -user=${{ secrets.DB_USER || 'autotest' }} -password=${{ secrets.DB_PASSWORD || 'autotest_password' }} -connectRetries=10 migrate
-      env:
-        FLYWAY_VALIDATE_MIGRATION_NAMING: "true"
-        FLYWAY_LOCATIONS: "filesystem:./migrations"
+      run: |
+        # Запуск Flyway напрямую, без Docker
+        wget -qO- https://repo1.maven.org/maven2/org/flywaydb/flyway-commandline/9.22.3/flyway-commandline-9.22.3-linux-x64.tar.gz | tar -xz
+        sudo mv flyway-9.22.3 /opt/flyway
+        sudo ln -s /opt/flyway/flyway /usr/local/bin/flyway
+        
+        # Запуск миграций
+        flyway -url=jdbc:postgresql://localhost:5432/${{ secrets.DB_NAME || 'store' }} -user=${{ secrets.DB_USER || 'autotest' }} -password=${{ secrets.DB_PASSWORD || 'autotest_password' }} -locations=filesystem:./migrations -connectRetries=10 migrate
 
     ### Этот шаг оставьте без изменений
     - name: Download and setup autotests binaries
