@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - dev
 jobs:
   migrate:
     runs-on: ubuntu-latest
@@ -11,6 +12,13 @@ jobs:
       uses: actions/checkout@v2
 
     #### Добавьте шаг с Flyway-миграциями
+    - name: Run Flyway migrations
+      uses: docker://flyway/flyway:9.22
+      with:
+        args: -url=jdbc:postgresql://${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }} -user=${{ secrets.DB_USER }} -password=${{ secrets.DB_PASSWORD }} -connectRetries=10 migrate
+      env:
+        FLYWAY_VALIDATE_MIGRATION_NAMING: "true"
+        FLYWAY_LOCATIONS: "filesystem:./migrations"
 
     ### Этот шаг оставьте без изменений
     - name: Download and setup autotests binaries
